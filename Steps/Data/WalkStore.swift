@@ -1,6 +1,7 @@
 import Foundation
 import CoreLocation
 import Observation
+import UIKit
 
 @MainActor
 @Observable
@@ -21,6 +22,10 @@ final class WalkStore {
 
     init() {
         _ = restoreFromDisk()
+        location.onChange = { [weak self] in
+            self?.rebuildLiveDay()
+        }
+        location.start()
     }
 
     var displayPoint: TrackPoint? {
@@ -131,6 +136,7 @@ final class WalkStore {
     private func rebuildLiveDay() {
         guard loadState != .loading, !usingSample else { return }
         applyLiveDay()
+        flushToDisk()
     }
 
     private func applyLiveDay() {
@@ -211,6 +217,11 @@ final class WalkStore {
         guard let day else { return }
         let start = Calendar.current.startOfDay(for: day.date)
         guard Calendar.current.isDateInToday(start) || usingSample else { return }
+        var task = UIBackgroundTaskIdentifier.invalid
+        task = UIApplication.shared.beginBackgroundTask(withName: "steps.persist") {
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
         let snapshot = WalkSnapshot(
             savedAt: Date(),
             dayStart: start,
@@ -221,6 +232,9 @@ final class WalkStore {
             fixes: location.locations.map(PersistedFix.init(location:))
         )
         WalkCache.save(snapshot)
+        if task != .invalid {
+            UIApplication.shared.endBackgroundTask(task)
+        }
     }
 
     private func makeLiveDay() -> WalkDay? {

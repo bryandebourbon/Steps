@@ -275,9 +275,9 @@
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Steps reads step count, walking distance, flights, and active energy from Health so today’s totals stay accurate.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Steps does not write to Health; this description is required for HealthKit access.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Steps keeps using location in the background so a walk still draws if you leave the app for a moment.";
-				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Steps keeps using location in the background so a walk still draws if you leave the app for a moment.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Steps uses your location to draw today’s walking path on the map.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.";
+				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Steps uses your GPS while you walk to draw today’s path on the map.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Steps uses the motion coprocessor to count steps, distance, and active time while you walk.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -316,9 +316,9 @@
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Steps reads step count, walking distance, flights, and active energy from Health so today’s totals stay accurate.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Steps does not write to Health; this description is required for HealthKit access.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Steps keeps using location in the background so a walk still draws if you leave the app for a moment.";
-				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Steps keeps using location in the background so a walk still draws if you leave the app for a moment.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Steps uses your location to draw today’s walking path on the map.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.";
+				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Steps uses your GPS while you walk to draw today’s path on the map.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Steps uses the motion coprocessor to count steps, distance, and active time while you walk.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

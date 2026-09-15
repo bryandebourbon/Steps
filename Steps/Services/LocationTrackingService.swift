@@ -4,6 +4,7 @@ import CoreLocation
 final class LocationTrackingService: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private(set) var locations: [CLLocation] = []
+    private let coarseAccuracy: CLLocationAccuracy = 2_000
     var onChange: (() -> Void)?
 
     override init() {
@@ -14,6 +15,7 @@ final class LocationTrackingService: NSObject, CLLocationManagerDelegate {
         manager.distanceFilter = 6
         manager.pausesLocationUpdatesAutomatically = false
         manager.showsBackgroundLocationIndicator = true
+        manager.allowsBackgroundLocationUpdates = true
     }
 
     var isAuthorized: Bool {
@@ -25,20 +27,30 @@ final class LocationTrackingService: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    var isAlwaysAuthorized: Bool {
+        manager.authorizationStatus == .authorizedAlways
+    }
+
     func requestAccess() {
-        manager.requestWhenInUseAuthorization()
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse:
+            manager.requestAlwaysAuthorization()
+        default:
+            break
+        }
     }
 
     func start() {
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
-        case .authorizedAlways:
-            manager.allowsBackgroundLocationUpdates = true
-            manager.startUpdatingLocation()
         case .authorizedWhenInUse:
-            manager.startUpdatingLocation()
+            beginForegroundUpdates()
             manager.requestAlwaysAuthorization()
+        case .authorizedAlways:
+            beginAlwaysUpdates()
         default:
             break
         }
@@ -48,11 +60,6 @@ final class LocationTrackingService: NSObject, CLLocationManagerDelegate {
         manager.stopUpdatingLocation()
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        start()
-        notify()
-    }
-
     func restore(_ stored: [CLLocation]) {
         let start = Calendar.current.startOfDay(for: Date())
         locations = stored
@@ -60,16 +67,63 @@ final class LocationTrackingService: NSObject, CLLocationManagerDelegate {
             .sorted { $0.timestamp < $1.timestamp }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        let useful = locations.filter { $0.horizontalAccuracy > 0 && $0.horizontalAccuracy < 50 }
-        let lastTime = self.locations.last?.timestamp ?? .distantPast
-        let fresh = useful.filter { $0.timestamp > lastTime }
-        guard !fresh.isEmpty else { return }
-        self.locations.append(contentsOf: fresh)
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        start()
         notify()
     }
 
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        append(locations, maxAccuracy: coarseAccuracy)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
+        let timestamp: Date
+        if visit.departureDate != .distantFuture {
+            timestamp = visit.departureDate
+        } else if visit.arrivalDate != .distantPast {
+            timestamp = visit.arrivalDate
+        } else {
+            timestamp = Date()
+        }
+        let fix = CLLocation(
+            coordinate: visit.coordinate,
+            altitude: 0,
+            horizontalAccuracy: 65,
+            verticalAccuracy: -1,
+            timestamp: timestamp
+        )
+        append([fix], maxAccuracy: coarseAccuracy)
+    }
+
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        notify()
+    }
+
+    private func beginForegroundUpdates() {
+        manager.allowsBackgroundLocationUpdates = false
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.startUpdatingLocation()
+    }
+
+    private func beginAlwaysUpdates() {
+        manager.allowsBackgroundLocationUpdates = true
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.showsBackgroundLocationIndicator = true
+        manager.startUpdatingLocation()
+        if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+            manager.startMonitoringSignificantLocationChanges()
+        }
+        manager.startMonitoringVisits()
+    }
+
+    private func append(_ incoming: [CLLocation], maxAccuracy: CLLocationAccuracy) {
+        let useful = incoming.filter {
+            $0.horizontalAccuracy > 0 && $0.horizontalAccuracy <= maxAccuracy
+        }
+        let lastTime = locations.last?.timestamp ?? .distantPast
+        let fresh = useful.filter { $0.timestamp > lastTime }
+        guard !fresh.isEmpty else { return }
+        locations.append(contentsOf: fresh)
         notify()
     }
 

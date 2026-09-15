@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Steps uses your GPS while you walk to draw today’s path on the map.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

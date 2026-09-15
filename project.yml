@@ -32,7 +32,9 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_UIBackgroundModes: location
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Steps uses your location to draw today’s walking path on the map.
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Steps uses your GPS while you walk to draw today’s path on the map.
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.
+        INFOPLIST_KEY_NSLocationAlwaysUsageDescription: Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.
         INFOPLIST_KEY_NSMotionUsageDescription: Steps uses the motion coprocessor to count steps, distance, and active time while you walk.
         SUPPORTS_MACCATALYST: NO
         SWIFT_EMIT_LOC_STRINGS: YES
