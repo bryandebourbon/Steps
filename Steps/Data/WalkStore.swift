@@ -19,13 +19,20 @@ final class WalkStore {
     @ObservationIgnored private var liveDay: WalkDay?
 
     @ObservationIgnored private var persistTask: Task<Void, Never>?
+    @ObservationIgnored private var midnightTask: Task<Void, Never>?
+    @ObservationIgnored private var dayChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private var timeChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private var sessionDayStart = Calendar.current.startOfDay(for: Date())
 
     init() {
         _ = restoreFromDisk()
+        rollToTodayIfNeeded()
         location.onChange = { [weak self] in
             self?.rebuildLiveDay()
         }
         location.start()
+        listenForDayChanges()
+        scheduleMidnightRollover()
     }
 
     var displayPoint: TrackPoint? {
@@ -42,6 +49,7 @@ final class WalkStore {
 
     func load() async {
         scrubDate = nil
+        rollToTodayIfNeeded()
         let restored = restoreFromDisk()
         if !restored {
             loadState = .loading
@@ -53,38 +61,14 @@ final class WalkStore {
         }
         location.requestAccess()
         location.start()
+        startPedometerUpdates()
 
-        if PedometerService.isAvailable {
-            if let fresh = await pedometer.queryToday() {
-                liveTotals = mergedTotals(liveTotals, fresh)
-            }
-        }
+        await refreshTodayFromSensors(showLoadingIfEmpty: !restored)
+    }
 
-        if PedometerService.isAvailable {
-            pedometer.startUpdates { [weak self] totals in
-                guard let self else { return }
-                self.liveTotals = self.mergedTotals(self.liveTotals, totals)
-                self.rebuildLiveDay()
-            }
-        }
-
-        if !usingSample {
-            applyLiveDay()
-        }
-        flushToDisk()
-
-        _ = await health.requestReadAccess()
-        if let healthTotals = await health.todayTotals() {
-            liveTotals = mergedTotals(liveTotals, healthTotals)
-        }
-        let freshTimeline = await health.todayStepTimeline()
-        if !freshTimeline.isEmpty {
-            healthTimeline = freshTimeline
-        }
-        if !usingSample {
-            applyLiveDay()
-        }
-        flushToDisk()
+    func becameActive() {
+        rollToTodayIfNeeded()
+        Task { await refreshTodayFromSensors(showLoadingIfEmpty: false) }
     }
 
     func showSampleDay() {
@@ -134,14 +118,49 @@ final class WalkStore {
     }
 
     private func rebuildLiveDay() {
+        rollToTodayIfNeeded()
         guard loadState != .loading, !usingSample else { return }
         applyLiveDay()
         flushToDisk()
     }
 
+    @discardableResult
+    private func rollToTodayIfNeeded() -> Bool {
+        let today = Calendar.current.startOfDay(for: Date())
+        let held = day.map { Calendar.current.startOfDay(for: $0.date) } ?? sessionDayStart
+
+        guard held != today || sessionDayStart != today else {
+            location.keepOnly(from: today)
+            pruneTimeline(to: today)
+            return false
+        }
+
+        if let day, !usingSample, Calendar.current.startOfDay(for: day.date) < today {
+            persistNow()
+        }
+
+        sessionDayStart = today
+        usingSample = false
+        liveTotals = nil
+        healthTimeline = []
+        liveDay = nil
+        scrubDate = nil
+        location.keepOnly(from: today)
+        startPedometerUpdates()
+        applyLiveDay()
+        flushToDisk()
+        scheduleMidnightRollover()
+        return true
+    }
+
     private func applyLiveDay() {
+        let today = Calendar.current.startOfDay(for: Date())
         let built = makeLiveDay()
-        if let built, let previous = liveDay ?? day, previous.source == .live {
+        if let built,
+           let previous = liveDay ?? day,
+           previous.source == .live,
+           Calendar.current.isDate(previous.date, inSameDayAs: today)
+        {
             liveDay = mergeLive(previous, onto: built)
         } else {
             liveDay = built
@@ -153,15 +172,20 @@ final class WalkStore {
     }
 
     private func mergeLive(_ previous: WalkDay, onto built: WalkDay) -> WalkDay {
+        guard Calendar.current.isDate(previous.date, inSameDayAs: built.date) else {
+            return built
+        }
         let points = built.points.count >= previous.points.count ? built.points : previous.points
+        let todayPoints = points.filter { Calendar.current.isDate($0.date, inSameDayAs: built.date) }
+        let cap = max(0, Date().timeIntervalSince(Calendar.current.startOfDay(for: built.date)))
         return WalkDay(
             date: built.date,
-            points: points,
+            points: todayPoints.isEmpty ? built.points : todayPoints,
             average: built.average,
             stats: DayStats(
                 steps: max(previous.stats.steps, built.stats.steps),
                 meters: max(previous.stats.meters, built.stats.meters),
-                activeSeconds: max(previous.stats.activeSeconds, built.stats.activeSeconds),
+                activeSeconds: min(max(previous.stats.activeSeconds, built.stats.activeSeconds), cap),
                 flights: max(previous.stats.flights, built.stats.flights),
                 calories: max(previous.stats.calories, built.stats.calories)
             ),
@@ -171,30 +195,58 @@ final class WalkStore {
 
     @discardableResult
     private func restoreFromDisk() -> Bool {
+        let today = Calendar.current.startOfDay(for: Date())
         guard let snap = WalkCache.loadToday() else { return false }
+        guard Calendar.current.isDate(snap.dayStart, inSameDayAs: today) else { return false }
         usingSample = snap.usingSample
-        liveTotals = snap.totals
-        healthTimeline = snap.timeline.map { ($0.date, $0.steps) }
-        var fixes = snap.fixes.map(\.clLocation)
+        liveTotals = snap.totals.map(clampedToToday)
+        healthTimeline = snap.timeline
+            .filter { Calendar.current.isDate($0.date, inSameDayAs: today) }
+            .map { ($0.date, $0.steps) }
+        var fixes = snap.fixes.map(\.clLocation).filter { $0.timestamp >= today }
         if fixes.isEmpty {
-            fixes = snap.day.points.map {
-                CLLocation(
-                    coordinate: $0.coordinate,
-                    altitude: 0,
-                    horizontalAccuracy: 10,
-                    verticalAccuracy: -1,
-                    timestamp: $0.date
-                )
-            }
+            fixes = snap.day.points
+                .filter { Calendar.current.isDate($0.date, inSameDayAs: today) }
+                .map {
+                    CLLocation(
+                        coordinate: $0.coordinate,
+                        altitude: 0,
+                        horizontalAccuracy: 10,
+                        verticalAccuracy: -1,
+                        timestamp: $0.date
+                    )
+                }
         }
         location.restore(fixes)
-        liveDay = snap.usingSample ? nil : snap.day
-        day = snap.day
-        loadState = .ready
-        return true
+        if snap.usingSample || !Calendar.current.isDate(snap.day.date, inSameDayAs: today) {
+            liveDay = nil
+            day = snap.usingSample ? snap.day : nil
+        } else {
+            liveDay = snap.day
+            day = snap.day
+        }
+        sessionDayStart = today
+        let elapsed = Date().timeIntervalSince(today)
+        let leakedDuration = (snap.totals?.activeSeconds ?? snap.day.stats.activeSeconds) > elapsed + 90
+        let foreignCount = snap.day.points.filter { !Calendar.current.isDate($0.date, inSameDayAs: today) }.count
+        let leakedPoints = !snap.day.points.isEmpty && foreignCount * 2 >= snap.day.points.count
+        if !snap.usingSample, leakedDuration || leakedPoints {
+            liveTotals = nil
+            healthTimeline = []
+            liveDay = nil
+            day = nil
+            location.keepOnly(from: today)
+            return false
+        }
+        if day != nil {
+            loadState = .ready
+            return true
+        }
+        return false
     }
 
     private func mergedTotals(_ current: LiveTotals?, _ incoming: LiveTotals) -> LiveTotals {
+        let incoming = clampedToToday(incoming)
         guard let current else { return incoming }
         return LiveTotals(
             steps: max(current.steps, incoming.steps),
@@ -202,6 +254,21 @@ final class WalkStore {
             floors: max(current.floors, incoming.floors),
             activeSeconds: max(current.activeSeconds, incoming.activeSeconds)
         )
+    }
+
+    private func clampedToToday(_ totals: LiveTotals) -> LiveTotals {
+        let start = Calendar.current.startOfDay(for: Date())
+        let cap = max(0, Date().timeIntervalSince(start))
+        return LiveTotals(
+            steps: totals.steps,
+            meters: totals.meters,
+            floors: totals.floors,
+            activeSeconds: min(max(0, totals.activeSeconds), cap)
+        )
+    }
+
+    private func pruneTimeline(to start: Date) {
+        healthTimeline.removeAll { $0.date < start }
     }
 
     private func schedulePersist() {
@@ -216,7 +283,6 @@ final class WalkStore {
     private func persistNow() {
         guard let day else { return }
         let start = Calendar.current.startOfDay(for: day.date)
-        guard Calendar.current.isDateInToday(start) || usingSample else { return }
         var task = UIBackgroundTaskIdentifier.invalid
         task = UIApplication.shared.beginBackgroundTask(withName: "steps.persist") {
             UIApplication.shared.endBackgroundTask(task)
@@ -225,11 +291,15 @@ final class WalkStore {
         let snapshot = WalkSnapshot(
             savedAt: Date(),
             dayStart: start,
-            usingSample: usingSample,
+            usingSample: usingSample && Calendar.current.isDateInToday(start),
             day: day,
-            totals: liveTotals,
-            timeline: healthTimeline.map { StepBucket(date: $0.date, steps: $0.steps) },
-            fixes: location.locations.map(PersistedFix.init(location:))
+            totals: Calendar.current.isDateInToday(start) ? liveTotals : nil,
+            timeline: healthTimeline
+                .filter { Calendar.current.isDate($0.date, inSameDayAs: start) }
+                .map { StepBucket(date: $0.date, steps: $0.steps) },
+            fixes: location.locations
+                .filter { Calendar.current.isDate($0.timestamp, inSameDayAs: start) }
+                .map(PersistedFix.init(location:))
         )
         WalkCache.save(snapshot)
         if task != .invalid {
@@ -240,8 +310,9 @@ final class WalkStore {
     private func makeLiveDay() -> WalkDay? {
         let start = Calendar.current.startOfDay(for: Date())
         let gps = location.locations.filter { $0.timestamp >= start }
-        let totals = liveTotals
-        let points = buildLivePoints(start: start, gps: gps, totals: totals, timeline: healthTimeline)
+        let totals = liveTotals.map(clampedToToday)
+        let timeline = healthTimeline.filter { $0.date >= start }
+        let points = buildLivePoints(start: start, gps: gps, totals: totals, timeline: timeline)
         let stats: DayStats
         if let totals {
             stats = DayStats(
@@ -351,5 +422,86 @@ final class WalkStore {
             )
         }
         return points
+    }
+
+    private func startPedometerUpdates() {
+        let start = Calendar.current.startOfDay(for: Date())
+        pedometer.restartUpdates(from: start) { [weak self] totals in
+            guard let self else { return }
+            self.rollToTodayIfNeeded()
+            guard Calendar.current.isDateInToday(Date()) else { return }
+            self.liveTotals = self.mergedTotals(self.liveTotals, totals)
+            self.rebuildLiveDay()
+        }
+    }
+
+    private func refreshTodayFromSensors(showLoadingIfEmpty: Bool) async {
+        rollToTodayIfNeeded()
+        let start = Calendar.current.startOfDay(for: Date())
+
+        if PedometerService.isAvailable {
+            if let fresh = await pedometer.query(from: start, to: Date()) {
+                liveTotals = mergedTotals(liveTotals, fresh)
+            }
+        }
+
+        if !usingSample {
+            applyLiveDay()
+        }
+        flushToDisk()
+
+        _ = await health.requestReadAccess()
+        if let healthTotals = await health.totals(from: start, to: Date()) {
+            liveTotals = mergedTotals(liveTotals, healthTotals)
+        }
+        let freshTimeline = await health.stepTimeline(from: start, to: Date())
+        if !freshTimeline.isEmpty {
+            healthTimeline = freshTimeline.filter { $0.date >= start }
+        }
+        if !usingSample {
+            applyLiveDay()
+        } else if showLoadingIfEmpty, day == nil {
+            loadState = .empty
+        }
+        flushToDisk()
+    }
+
+    private func listenForDayChanges() {
+        dayChangeObserver = NotificationCenter.default.addObserver(
+            forName: .NSCalendarDayChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.rollToTodayIfNeeded()
+                await self?.refreshTodayFromSensors(showLoadingIfEmpty: false)
+            }
+        }
+        timeChangeObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.significantTimeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.rollToTodayIfNeeded()
+                await self?.refreshTodayFromSensors(showLoadingIfEmpty: false)
+            }
+        }
+    }
+
+    private func scheduleMidnightRollover() {
+        midnightTask?.cancel()
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        guard let nextMidnight = calendar.date(byAdding: .day, value: 1, to: today) else { return }
+        let delay = max(nextMidnight.timeIntervalSinceNow, 1)
+        midnightTask = Task { @MainActor in
+            let nanoseconds = UInt64(delay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else { return }
+            rollToTodayIfNeeded()
+            await refreshTodayFromSensors(showLoadingIfEmpty: false)
+            scheduleMidnightRollover()
+        }
     }
 }

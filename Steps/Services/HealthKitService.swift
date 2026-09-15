@@ -36,12 +36,16 @@ final class HealthKitService {
     }
 
     func todayTotals() async -> LiveTotals? {
-        guard Self.isAvailable else { return nil }
         let start = Calendar.current.startOfDay(for: Date())
-        async let steps = sum(.stepCount, unit: .count(), from: start)
-        async let meters = sum(.distanceWalkingRunning, unit: .meter(), from: start)
-        async let flights = sum(.flightsClimbed, unit: .count(), from: start)
-        async let exercise = sum(.appleExerciseTime, unit: .minute(), from: start)
+        return await totals(from: start, to: Date())
+    }
+
+    func totals(from start: Date, to end: Date) async -> LiveTotals? {
+        guard Self.isAvailable else { return nil }
+        async let steps = sum(.stepCount, unit: .count(), from: start, to: end)
+        async let meters = sum(.distanceWalkingRunning, unit: .meter(), from: start, to: end)
+        async let flights = sum(.flightsClimbed, unit: .count(), from: start, to: end)
+        async let exercise = sum(.appleExerciseTime, unit: .minute(), from: start, to: end)
         let stepCount = Int(await steps)
         guard stepCount > 0 else { return nil }
         return LiveTotals(
@@ -53,10 +57,14 @@ final class HealthKitService {
     }
 
     func todayStepTimeline() async -> [(date: Date, steps: Double)] {
-        guard let type = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return [] }
         let start = Calendar.current.startOfDay(for: Date())
+        return await stepTimeline(from: start, to: Date())
+    }
+
+    func stepTimeline(from start: Date, to end: Date) async -> [(date: Date, steps: Double)] {
+        guard let type = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return [] }
         let interval = DateComponents(minute: 5)
-        let predicate = HKQuery.predicateForSamples(withStart: start, end: Date(), options: .strictStartDate)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
 
         return await withCheckedContinuation { continuation in
             let query = HKStatisticsCollectionQuery(
@@ -68,7 +76,7 @@ final class HealthKitService {
             )
             query.initialResultsHandler = { _, collection, _ in
                 var samples: [(date: Date, steps: Double)] = []
-                collection?.enumerateStatistics(from: start, to: Date()) { statistic, _ in
+                collection?.enumerateStatistics(from: start, to: end) { statistic, _ in
                     let value = statistic.sumQuantity()?.doubleValue(for: .count()) ?? 0
                     samples.append((statistic.startDate, value))
                 }
@@ -78,9 +86,14 @@ final class HealthKitService {
         }
     }
 
-    private func sum(_ identifier: HKQuantityTypeIdentifier, unit: HKUnit, from start: Date) async -> Double {
+    private func sum(
+        _ identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        from start: Date,
+        to end: Date
+    ) async -> Double {
         guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else { return 0 }
-        let predicate = HKQuery.predicateForSamples(withStart: start, end: Date(), options: .strictStartDate)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
         return await withCheckedContinuation { continuation in
             let query = HKStatisticsQuery(
                 quantityType: type,

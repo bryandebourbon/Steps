@@ -36,8 +36,13 @@ struct TodayScreen: View {
             await store.load()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background || phase == .inactive {
+            switch phase {
+            case .active:
+                store.becameActive()
+            case .background, .inactive:
                 store.flushToDisk()
+            default:
+                break
             }
         }
     }

@@ -61,8 +61,12 @@ final class LocationTrackingService: NSObject, CLLocationManagerDelegate {
     }
 
     func restore(_ stored: [CLLocation]) {
-        let start = Calendar.current.startOfDay(for: Date())
-        locations = stored
+        keepOnly(from: Calendar.current.startOfDay(for: Date()), replacingWith: stored)
+    }
+
+    func keepOnly(from start: Date, replacingWith stored: [CLLocation]? = nil) {
+        let source = stored ?? locations
+        locations = source
             .filter { $0.timestamp >= start }
             .sorted { $0.timestamp < $1.timestamp }
     }
@@ -117,8 +121,14 @@ final class LocationTrackingService: NSObject, CLLocationManagerDelegate {
     }
 
     private func append(_ incoming: [CLLocation], maxAccuracy: CLLocationAccuracy) {
+        let start = Calendar.current.startOfDay(for: Date())
+        if let first = locations.first, first.timestamp < start {
+            keepOnly(from: start)
+        }
         let useful = incoming.filter {
-            $0.horizontalAccuracy > 0 && $0.horizontalAccuracy <= maxAccuracy
+            $0.timestamp >= start
+                && $0.horizontalAccuracy > 0
+                && $0.horizontalAccuracy <= maxAccuracy
         }
         let lastTime = locations.last?.timestamp ?? .distantPast
         let fresh = useful.filter { $0.timestamp > lastTime }
