@@ -1,12 +1,12 @@
 import Foundation
 import CoreLocation
 
-enum DataSource: String, Equatable {
+enum DataSource: String, Equatable, Codable {
     case sample
     case live
 }
 
-struct DayStats: Equatable {
+struct DayStats: Equatable, Codable {
     var steps: Int
     var meters: Double
     var activeSeconds: TimeInterval
@@ -14,7 +14,7 @@ struct DayStats: Equatable {
     var calories: Int
 }
 
-struct TrackPoint: Identifiable, Equatable {
+struct TrackPoint: Identifiable, Equatable, Codable {
     let id: Int
     let date: Date
     let latitude: Double
@@ -28,13 +28,13 @@ struct TrackPoint: Identifiable, Equatable {
     }
 }
 
-struct AverageSample: Identifiable, Equatable {
+struct AverageSample: Identifiable, Equatable, Codable {
     let id: Int
     let date: Date
     let steps: Int
 }
 
-struct WalkDay: Equatable {
+struct WalkDay: Equatable, Codable {
     var date: Date
     var points: [TrackPoint]
     var average: [AverageSample]

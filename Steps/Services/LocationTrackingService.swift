@@ -53,9 +53,19 @@ final class LocationTrackingService: NSObject, CLLocationManagerDelegate {
         notify()
     }
 
+    func restore(_ stored: [CLLocation]) {
+        let start = Calendar.current.startOfDay(for: Date())
+        locations = stored
+            .filter { $0.timestamp >= start }
+            .sorted { $0.timestamp < $1.timestamp }
+    }
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         let useful = locations.filter { $0.horizontalAccuracy > 0 && $0.horizontalAccuracy < 50 }
-        self.locations.append(contentsOf: useful)
+        let lastTime = self.locations.last?.timestamp ?? .distantPast
+        let fresh = useful.filter { $0.timestamp > lastTime }
+        guard !fresh.isEmpty else { return }
+        self.locations.append(contentsOf: fresh)
         notify()
     }
 

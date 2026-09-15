@@ -1,7 +1,7 @@
 import Foundation
 import CoreMotion
 
-struct LiveTotals: Equatable {
+struct LiveTotals: Equatable, Codable {
     var steps: Int
     var meters: Double
     var floors: Int

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TodayScreen: View {
     @Environment(WalkStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -32,8 +33,11 @@ struct TodayScreen: View {
             }
         }
         .task {
-            if store.loadState == .loading, store.day == nil {
-                await store.load()
+            await store.load()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background || phase == .inactive {
+                store.flushToDisk()
             }
         }
     }

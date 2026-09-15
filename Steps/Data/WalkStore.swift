@@ -17,6 +17,12 @@ final class WalkStore {
     @ObservationIgnored private var healthTimeline: [(date: Date, steps: Double)] = []
     @ObservationIgnored private var liveDay: WalkDay?
 
+    @ObservationIgnored private var persistTask: Task<Void, Never>?
+
+    init() {
+        _ = restoreFromDisk()
+    }
+
     var displayPoint: TrackPoint? {
         guard let day else { return nil }
         if let scrubDate {
@@ -30,9 +36,12 @@ final class WalkStore {
     }
 
     func load() async {
-        loadState = .loading
-        day = nil
         scrubDate = nil
+        let restored = restoreFromDisk()
+        if !restored {
+            loadState = .loading
+            day = nil
+        }
 
         location.onChange = { [weak self] in
             self?.rebuildLiveDay()
@@ -41,22 +50,36 @@ final class WalkStore {
         location.start()
 
         if PedometerService.isAvailable {
-            liveTotals = await pedometer.queryToday()
-        }
-        _ = await health.requestReadAccess()
-        if let healthTotals = await health.todayTotals() {
-            liveTotals = healthTotals
-        }
-        healthTimeline = await health.todayStepTimeline()
-
-        if PedometerService.isAvailable {
-            pedometer.startUpdates { [weak self] totals in
-                self?.liveTotals = totals
-                self?.rebuildLiveDay()
+            if let fresh = await pedometer.queryToday() {
+                liveTotals = mergedTotals(liveTotals, fresh)
             }
         }
 
-        applyLiveDay()
+        if PedometerService.isAvailable {
+            pedometer.startUpdates { [weak self] totals in
+                guard let self else { return }
+                self.liveTotals = self.mergedTotals(self.liveTotals, totals)
+                self.rebuildLiveDay()
+            }
+        }
+
+        if !usingSample {
+            applyLiveDay()
+        }
+        flushToDisk()
+
+        _ = await health.requestReadAccess()
+        if let healthTotals = await health.todayTotals() {
+            liveTotals = mergedTotals(liveTotals, healthTotals)
+        }
+        let freshTimeline = await health.todayStepTimeline()
+        if !freshTimeline.isEmpty {
+            healthTimeline = freshTimeline
+        }
+        if !usingSample {
+            applyLiveDay()
+        }
+        flushToDisk()
     }
 
     func showSampleDay() {
@@ -70,6 +93,7 @@ final class WalkStore {
         day = sample
         loadState = .ready
         scrubDate = nil
+        flushToDisk()
     }
 
     func useLiveWalk() {
@@ -80,6 +104,11 @@ final class WalkStore {
 
     func retry() async {
         await load()
+    }
+
+    func flushToDisk() {
+        persistTask?.cancel()
+        persistNow()
     }
 
     func beginScrub(at date: Date) {
@@ -105,10 +134,93 @@ final class WalkStore {
     }
 
     private func applyLiveDay() {
-        liveDay = makeLiveDay()
+        let built = makeLiveDay()
+        if let built, let previous = liveDay ?? day, previous.source == .live {
+            liveDay = mergeLive(previous, onto: built)
+        } else {
+            liveDay = built
+        }
         usingSample = false
         day = liveDay
         loadState = .ready
+        schedulePersist()
+    }
+
+    private func mergeLive(_ previous: WalkDay, onto built: WalkDay) -> WalkDay {
+        let points = built.points.count >= previous.points.count ? built.points : previous.points
+        return WalkDay(
+            date: built.date,
+            points: points,
+            average: built.average,
+            stats: DayStats(
+                steps: max(previous.stats.steps, built.stats.steps),
+                meters: max(previous.stats.meters, built.stats.meters),
+                activeSeconds: max(previous.stats.activeSeconds, built.stats.activeSeconds),
+                flights: max(previous.stats.flights, built.stats.flights),
+                calories: max(previous.stats.calories, built.stats.calories)
+            ),
+            source: .live
+        )
+    }
+
+    @discardableResult
+    private func restoreFromDisk() -> Bool {
+        guard let snap = WalkCache.loadToday() else { return false }
+        usingSample = snap.usingSample
+        liveTotals = snap.totals
+        healthTimeline = snap.timeline.map { ($0.date, $0.steps) }
+        var fixes = snap.fixes.map(\.clLocation)
+        if fixes.isEmpty {
+            fixes = snap.day.points.map {
+                CLLocation(
+                    coordinate: $0.coordinate,
+                    altitude: 0,
+                    horizontalAccuracy: 10,
+                    verticalAccuracy: -1,
+                    timestamp: $0.date
+                )
+            }
+        }
+        location.restore(fixes)
+        liveDay = snap.usingSample ? nil : snap.day
+        day = snap.day
+        loadState = .ready
+        return true
+    }
+
+    private func mergedTotals(_ current: LiveTotals?, _ incoming: LiveTotals) -> LiveTotals {
+        guard let current else { return incoming }
+        return LiveTotals(
+            steps: max(current.steps, incoming.steps),
+            meters: max(current.meters, incoming.meters),
+            floors: max(current.floors, incoming.floors),
+            activeSeconds: max(current.activeSeconds, incoming.activeSeconds)
+        )
+    }
+
+    private func schedulePersist() {
+        persistTask?.cancel()
+        persistTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            persistNow()
+        }
+    }
+
+    private func persistNow() {
+        guard let day else { return }
+        let start = Calendar.current.startOfDay(for: day.date)
+        guard Calendar.current.isDateInToday(start) || usingSample else { return }
+        let snapshot = WalkSnapshot(
+            savedAt: Date(),
+            dayStart: start,
+            usingSample: usingSample,
+            day: day,
+            totals: liveTotals,
+            timeline: healthTimeline.map { StepBucket(date: $0.date, steps: $0.steps) },
+            fixes: location.locations.map(PersistedFix.init(location:))
+        )
+        WalkCache.save(snapshot)
     }
 
     private func makeLiveDay() -> WalkDay? {
