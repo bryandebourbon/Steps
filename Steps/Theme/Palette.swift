@@ -13,9 +13,11 @@ enum Palette {
         let colors = [
             Color(red: 0.35, green: 0.78, blue: 1),
             Color(red: 1, green: 0.62, blue: 0.28),
-            Color(red: 0.78, green: 0.56, blue: 1)
+            Color(red: 0.78, green: 0.56, blue: 1),
+            Color(red: 0.45, green: 0.9, blue: 0.55),
+            Color(red: 1, green: 0.45, blue: 0.62)
         ]
-        return colors[index % colors.count].opacity(0.62)
+        return colors[index % colors.count]
     }
 }
 

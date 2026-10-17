@@ -50,14 +50,14 @@ struct ProgressChartView: View {
 
             if !friends.isEmpty {
                 HStack(spacing: 12) {
-                    ForEach(friends) { friend in
+                    ForEach(Array(friends.enumerated()), id: \.element.id) { index, friend in
                         HStack(spacing: 5) {
                             Circle()
-                                .fill(Palette.friendColor(friend.colorIndex))
+                                .fill(Palette.friendColor(index))
                                 .frame(width: 7, height: 7)
                             Text("\(friend.name) \(friend.steps.formatted())")
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Palette.friendColor(friend.colorIndex))
+                                .foregroundStyle(Palette.friendColor(index))
                                 .lineLimit(1)
                         }
                     }
@@ -93,14 +93,14 @@ struct ProgressChartView: View {
 
     private var chart: some View {
         Chart {
-            ForEach(friends) { friend in
+            ForEach(Array(friends.enumerated()), id: \.element.id) { index, friend in
                 ForEach(friend.samples) { sample in
                     LineMark(
                         x: .value("Time", sample.date),
                         y: .value("Steps", sample.steps),
-                        series: .value("Series", "Friend-\(friend.id)")
+                        series: .value("Series", "Friend-\(index)")
                     )
-                    .foregroundStyle(Palette.friendColor(friend.colorIndex))
+                    .foregroundStyle(by: .value("Series", "Friend-\(index)"))
                     .interpolationMethod(.stepEnd)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                 }
@@ -112,7 +112,7 @@ struct ProgressChartView: View {
                     y: .value("Average steps", sample.steps),
                     series: .value("Series", "Average")
                 )
-                .foregroundStyle(Palette.average)
+                .foregroundStyle(by: .value("Series", "Average"))
                 .interpolationMethod(.catmullRom)
                 .lineStyle(StrokeStyle(lineWidth: 2))
             }
@@ -123,7 +123,7 @@ struct ProgressChartView: View {
                     y: .value("Steps", point.cumulativeSteps),
                     series: .value("Series", "Today")
                 )
-                .foregroundStyle(Palette.actual)
+                .foregroundStyle(by: .value("Series", "Today"))
                 .interpolationMethod(.stepEnd)
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             }
@@ -177,6 +177,15 @@ struct ProgressChartView: View {
             }
         }
         .chartLegend(.hidden)
+        .chartForegroundStyleScale([
+            "Today": Color.white,
+            "Average": Color.white.opacity(0.32),
+            "Friend-0": Palette.friendColor(0),
+            "Friend-1": Palette.friendColor(1),
+            "Friend-2": Palette.friendColor(2),
+            "Friend-3": Palette.friendColor(3),
+            "Friend-4": Palette.friendColor(4)
+        ])
         .chartPlotStyle { plot in
             plot.background(Color.clear)
         }
@@ -198,24 +207,7 @@ struct ProgressChartView: View {
                     }
                     if let plotAnchor = proxy.plotFrame {
                         let plot = geo[plotAnchor]
-                        if !userName.isEmpty, let point = day.points.last,
-                           let plotPoint = proxy.position(for: (x: point.date, y: point.cumulativeSteps)) {
-                            let x = plot.minX + plotPoint.x
-                            let y = plot.minY + plotPoint.y
-                            let placed = FriendPlotLabel.placement(name: userName, fontSize: 12, x: x, plot: plot)
-                            FriendPlotLabel(
-                                name: userName,
-                                color: .white,
-                                onRight: placed.onRight,
-                                width: placed.width
-                            )
-                            .position(
-                                x: placed.onRight ? x + placed.width / 2 : x - placed.width / 2,
-                                y: y
-                            )
-                            .allowsHitTesting(false)
-                        }
-                        ForEach(friends) { friend in
+                        ForEach(Array(friends.enumerated()), id: \.element.id) { index, friend in
                             if let sample = friend.samples.last, !friend.name.isEmpty,
                                let plotPoint = proxy.position(for: (x: sample.date, y: sample.steps)) {
                                 let x = plot.minX + plotPoint.x
@@ -223,7 +215,7 @@ struct ProgressChartView: View {
                                 let placed = FriendPlotLabel.placement(name: friend.name, fontSize: 12, x: x, plot: plot)
                                 FriendPlotLabel(
                                     name: friend.name,
-                                    color: Palette.friendColor(friend.colorIndex),
+                                    color: Palette.friendColor(index),
                                     onRight: placed.onRight,
                                     width: placed.width
                                 )
@@ -233,6 +225,25 @@ struct ProgressChartView: View {
                                 )
                                 .allowsHitTesting(false)
                             }
+                        }
+                        if !userName.isEmpty, let point = day.points.last,
+                           let plotPoint = proxy.position(for: (x: point.date, y: point.cumulativeSteps)) {
+                            let x = plot.minX + plotPoint.x
+                            let y = plot.minY + plotPoint.y
+                            let placed = FriendPlotLabel.placement(name: userName, fontSize: 12, x: x, plot: plot)
+                            FriendPlotLabel(
+                                name: userName,
+                                color: .white,
+                                onRight: placed.onRight,
+                                width: placed.width,
+                                shadowed: true
+                            )
+                            .position(
+                                x: placed.onRight ? x + placed.width / 2 : x - placed.width / 2,
+                                y: y
+                            )
+                            .zIndex(1)
+                            .allowsHitTesting(false)
                         }
                     }
                     ScrubSurface(
@@ -458,6 +469,7 @@ private struct FriendPlotLabel: View {
     var onRight: Bool
     var width: CGFloat
     var fontSize: CGFloat = 12
+    var shadowed: Bool = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -470,6 +482,8 @@ private struct FriendPlotLabel: View {
             }
         }
         .frame(width: width, alignment: onRight ? .leading : .trailing)
+        .shadow(color: shadowed ? .black.opacity(0.95) : .clear, radius: shadowed ? 2 : 0)
+        .shadow(color: shadowed ? .black.opacity(0.85) : .clear, radius: shadowed ? 5 : 0)
     }
 
     private var dash: some View {

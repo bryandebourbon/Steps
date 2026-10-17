@@ -21,9 +21,11 @@ private struct WidgetFriend: Identifiable {
         let colors = [
             Color(red: 0.35, green: 0.78, blue: 1),
             Color(red: 1, green: 0.62, blue: 0.28),
-            Color(red: 0.78, green: 0.56, blue: 1)
+            Color(red: 0.78, green: 0.56, blue: 1),
+            Color(red: 0.45, green: 0.9, blue: 0.55),
+            Color(red: 1, green: 0.45, blue: 0.62)
         ]
-        return colors[index % colors.count].opacity(0.62)
+        return colors[index % colors.count]
     }
 }
 
@@ -188,14 +190,14 @@ private struct StepsChartWidgetView: View {
         let showCeiling = size.height > 120
         let now = min(max(entry.date, entry.dayStart), entry.dayEnd.addingTimeInterval(-60))
         return Chart {
-            ForEach(entry.friends) { friend in
+            ForEach(Array(entry.friends.enumerated()), id: \.element.id) { index, friend in
                 ForEach(friend.points) { sample in
                     LineMark(
                         x: .value("Time", sample.date),
                         y: .value("Steps", sample.steps),
-                        series: .value("Series", "Friend-\(friend.id)")
+                        series: .value("Series", "Friend-\(index)")
                     )
-                    .foregroundStyle(WidgetFriend.color(friend.colorIndex))
+                    .foregroundStyle(by: .value("Series", "Friend-\(index)"))
                     .interpolationMethod(.stepEnd)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                 }
@@ -206,7 +208,7 @@ private struct StepsChartWidgetView: View {
                     y: .value("Average", sample.steps),
                     series: .value("Series", "Average")
                 )
-                .foregroundStyle(Color.white.opacity(0.32))
+                .foregroundStyle(by: .value("Series", "Average"))
                 .interpolationMethod(.catmullRom)
                 .lineStyle(StrokeStyle(lineWidth: 2))
             }
@@ -216,7 +218,7 @@ private struct StepsChartWidgetView: View {
                     y: .value("Steps", sample.steps),
                     series: .value("Series", "Today")
                 )
-                .foregroundStyle(Color.white)
+                .foregroundStyle(by: .value("Series", "Today"))
                 .interpolationMethod(.stepEnd)
                 .lineStyle(StrokeStyle(lineWidth: max(2, size.width / 140), lineCap: .round, lineJoin: .round))
             }
@@ -227,6 +229,15 @@ private struct StepsChartWidgetView: View {
         .chartXScale(domain: entry.dayStart...entry.dayEnd)
         .chartYScale(domain: 0...goalCeiling)
         .chartLegend(.hidden)
+        .chartForegroundStyleScale([
+            "Today": Color.white,
+            "Average": Color.white.opacity(0.32),
+            "Friend-0": WidgetFriend.color(0),
+            "Friend-1": WidgetFriend.color(1),
+            "Friend-2": WidgetFriend.color(2),
+            "Friend-3": WidgetFriend.color(3),
+            "Friend-4": WidgetFriend.color(4)
+        ])
         .chartXAxis {
             AxisMarks(values: [now]) { value in
                 AxisValueLabel(anchor: .top) {
@@ -264,6 +275,25 @@ private struct StepsChartWidgetView: View {
                     let plot = geo[plotAnchor]
                     let fontSize: CGFloat = size.width < 180 ? 10 : 12
                     let trailing = geo.size.width - 2
+                    ForEach(Array(entry.friends.enumerated()), id: \.element.id) { index, friend in
+                        if let sample = friend.points.last, !friend.name.isEmpty,
+                           let plotPoint = proxy.position(for: (x: sample.date, y: sample.steps)) {
+                            let x = plot.minX + plotPoint.x
+                            let y = plot.minY + plotPoint.y
+                            let placed = FriendPlotLabel.placement(name: friend.name, fontSize: fontSize, x: x, leading: plot.minX, trailing: trailing)
+                            FriendPlotLabel(
+                                name: friend.name,
+                                color: WidgetFriend.color(index),
+                                onRight: placed.onRight,
+                                width: placed.width,
+                                fontSize: fontSize
+                            )
+                            .position(
+                                x: placed.onRight ? x + placed.width / 2 : x - placed.width / 2,
+                                y: y
+                            )
+                        }
+                    }
                     if !entry.userName.isEmpty, let sample = entry.points.last,
                        let plotPoint = proxy.position(for: (x: sample.date, y: sample.steps)) {
                         let x = plot.minX + plotPoint.x
@@ -274,31 +304,14 @@ private struct StepsChartWidgetView: View {
                             color: .white,
                             onRight: placed.onRight,
                             width: placed.width,
-                            fontSize: fontSize
+                            fontSize: fontSize,
+                            shadowed: true
                         )
+                        .zIndex(1)
                         .position(
                             x: placed.onRight ? x + placed.width / 2 : x - placed.width / 2,
                             y: y
                         )
-                    }
-                    ForEach(entry.friends) { friend in
-                        if let sample = friend.points.last, !friend.name.isEmpty,
-                           let plotPoint = proxy.position(for: (x: sample.date, y: sample.steps)) {
-                            let x = plot.minX + plotPoint.x
-                            let y = plot.minY + plotPoint.y
-                            let placed = FriendPlotLabel.placement(name: friend.name, fontSize: fontSize, x: x, leading: plot.minX, trailing: trailing)
-                            FriendPlotLabel(
-                                name: friend.name,
-                                color: WidgetFriend.color(friend.colorIndex),
-                                onRight: placed.onRight,
-                                width: placed.width,
-                                fontSize: fontSize
-                            )
-                            .position(
-                                x: placed.onRight ? x + placed.width / 2 : x - placed.width / 2,
-                                y: y
-                            )
-                        }
                     }
                 }
             }
@@ -329,6 +342,7 @@ private struct FriendPlotLabel: View {
     var onRight: Bool
     var width: CGFloat
     var fontSize: CGFloat = 12
+    var shadowed: Bool = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -341,6 +355,8 @@ private struct FriendPlotLabel: View {
             }
         }
         .frame(width: width, alignment: onRight ? .leading : .trailing)
+        .shadow(color: shadowed ? .black.opacity(0.95) : .clear, radius: shadowed ? 2 : 0)
+        .shadow(color: shadowed ? .black.opacity(0.85) : .clear, radius: shadowed ? 5 : 0)
     }
 
     private var dash: some View {
@@ -553,11 +569,11 @@ private enum WidgetFriends {
         }
         guard let data = defaults.data(forKey: "steps.widget.friends"),
               let stored = try? JSONDecoder().decode([Stored].self, from: data) else { return [] }
-        return stored.map { friend in
+        return stored.enumerated().map { offset, friend in
             let points = zip(friend.offsets, friend.steps).enumerated().map { index, pair in
                 StepSample(id: index, date: today.addingTimeInterval(pair.0), steps: pair.1)
             }
-            return WidgetFriend(id: friend.colorIndex, name: friend.name, colorIndex: friend.colorIndex, points: points)
+            return WidgetFriend(id: offset, name: friend.name, colorIndex: offset, points: points)
         }
     }
 }

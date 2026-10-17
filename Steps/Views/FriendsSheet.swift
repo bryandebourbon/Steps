@@ -12,18 +12,16 @@ struct FriendsSheet: View {
     @State private var scanning = false
     @State private var busy = false
     @State private var confirmingReset = false
+    @State private var copied = false
+    @State private var copyTask: Task<Void, Never>?
     @State private var tap = FriendTap()
-    @AppStorage("steps.addByProximity") private var addByProximity = true
+    @AppStorage("steps.addByProximity") private var addByProximity = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
                     codeCard
-                    proximityToggle
-                    if addByProximity {
-                        tapHint
-                    }
                     addButtons
                     if entering {
                         enterRow
@@ -42,10 +40,26 @@ struct FriendsSheet: View {
             .navigationTitle("Friends")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Reset code") { confirmingReset = true }
+                        .tint(.white)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                         .tint(.white)
                 }
+            }
+            .confirmationDialog("Reset your code?", isPresented: $confirmingReset, titleVisibility: .visible) {
+                Button("Reset code", role: .destructive) {
+                    Task {
+                        await friends.resetCode()
+                        if let day = store.day { friends.publishNow(day) }
+                        beginTap()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This phone disconnects. The old code, steps, and friendships stay in iCloud.")
             }
         }
         .preferredColorScheme(.dark)
@@ -79,22 +93,13 @@ struct FriendsSheet: View {
                 .font(.system(size: 28, weight: .semibold, design: .monospaced))
                 .tracking(4)
                 .foregroundStyle(.white)
-            Button("Reset code") { confirmingReset = true }
-                .font(.system(size: 15, weight: .semibold))
-                .buttonStyle(.bordered)
-                .tint(.white)
-                .confirmationDialog("Reset your code?", isPresented: $confirmingReset, titleVisibility: .visible) {
-                    Button("Reset code", role: .destructive) {
-                        Task {
-                            await friends.resetCode()
-                            if let day = store.day { friends.publishNow(day) }
-                            beginTap()
-                        }
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("Friends are cleared, and the old code disappears from their charts. A new code is saved to iCloud.")
-                }
+                .contentShape(Rectangle())
+                .onTapGesture { copyCode() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Copies your code")
+            Text(copied ? "Copied" : " ")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(copied ? 0.7 : 0))
             TextField("Name friends see", text: Bindable(friends).displayName)
                 .font(.system(size: 16, weight: .medium))
                 .multilineTextAlignment(.center)
@@ -124,13 +129,22 @@ struct FriendsSheet: View {
 
     private var tapHint: some View {
         VStack(spacing: 6) {
-            Image(systemName: "iphone.radiowaves.left.and.right")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
             Text(tap.status)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color.white.opacity(0.65))
                 .multilineTextAlignment(.center)
+        }
+    }
+
+    private func copyCode() {
+        guard friends.code.count == 6 else { return }
+        UIPasteboard.general.string = friends.code
+        copied = true
+        copyTask?.cancel()
+        copyTask = Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard !Task.isCancelled else { return }
+            copied = false
         }
     }
 
@@ -170,7 +184,7 @@ struct FriendsSheet: View {
             .tint(.white)
             .foregroundStyle(.black)
         }
-        .disabled(friends.friends.count >= 3 || busy)
+        .disabled(friends.friends.count >= FriendStore.friendLimit || busy)
     }
 
     private var enterRow: some View {
@@ -203,17 +217,21 @@ struct FriendsSheet: View {
                         Spacer(minLength: 12)
                         ContrastSwitch(isOn: Bindable(friends).showOnWidget)
                     }
+                    proximityToggle
+                    if addByProximity {
+                        tapHint
+                    }
                     if friends.friends.isEmpty {
-                Text("Add up to three people. Their day shows behind yours.")
+                Text("Add up to five people. Their day shows behind yours.")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.5))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(friends.friends) { friend in
+                ForEach(Array(friends.friends.enumerated()), id: \.element.id) { index, friend in
                     HStack(spacing: 10) {
-                        Circle()
-                            .fill(Palette.friendColor(friend.colorIndex))
-                            .frame(width: 10, height: 10)
+                            Circle()
+                                .fill(Palette.friendColor(index))
+                                .frame(width: 10, height: 10)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(friend.name)
                                 .font(.system(size: 16, weight: .semibold))
