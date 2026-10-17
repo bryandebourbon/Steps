@@ -1,7 +1,7 @@
 import Foundation
-import CoreLocation
 import Observation
 import UIKit
+import WidgetKit
 
 @MainActor
 @Observable
@@ -11,26 +11,24 @@ final class WalkStore {
     var scrubDate: Date?
     var usingSample = false
 
-    @ObservationIgnored private let location = LocationTrackingService()
     @ObservationIgnored private let pedometer = PedometerService()
-    @ObservationIgnored private let health = HealthKitService()
     @ObservationIgnored private var liveTotals: LiveTotals?
     @ObservationIgnored private var healthTimeline: [(date: Date, steps: Double)] = []
     @ObservationIgnored private var liveDay: WalkDay?
+    @ObservationIgnored private var weeklyAverage: [AverageSample] = []
+    @ObservationIgnored private var weeklyAverageDay: Date?
+    @ObservationIgnored private var weeklyTask: Task<Void, Never>?
 
     @ObservationIgnored private var persistTask: Task<Void, Never>?
     @ObservationIgnored private var midnightTask: Task<Void, Never>?
     @ObservationIgnored private var dayChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var timeChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var sessionDayStart = Calendar.current.startOfDay(for: Date())
+    @ObservationIgnored private var lastWidgetReload = Date.distantPast
 
     init() {
         _ = restoreFromDisk()
         rollToTodayIfNeeded()
-        location.onChange = { [weak self] in
-            self?.rebuildLiveDay()
-        }
-        location.start()
         listenForDayChanges()
         scheduleMidnightRollover()
     }
@@ -56,11 +54,6 @@ final class WalkStore {
             day = nil
         }
 
-        location.onChange = { [weak self] in
-            self?.rebuildLiveDay()
-        }
-        location.requestAccess()
-        location.start()
         startPedometerUpdates()
 
         await refreshTodayFromSensors(showLoadingIfEmpty: !restored)
@@ -130,7 +123,6 @@ final class WalkStore {
         let held = day.map { Calendar.current.startOfDay(for: $0.date) } ?? sessionDayStart
 
         guard held != today || sessionDayStart != today else {
-            location.keepOnly(from: today)
             pruneTimeline(to: today)
             return false
         }
@@ -145,7 +137,6 @@ final class WalkStore {
         healthTimeline = []
         liveDay = nil
         scrubDate = nil
-        location.keepOnly(from: today)
         startPedometerUpdates()
         applyLiveDay()
         flushToDisk()
@@ -154,43 +145,11 @@ final class WalkStore {
     }
 
     private func applyLiveDay() {
-        let today = Calendar.current.startOfDay(for: Date())
-        let built = makeLiveDay()
-        if let built,
-           let previous = liveDay ?? day,
-           previous.source == .live,
-           Calendar.current.isDate(previous.date, inSameDayAs: today)
-        {
-            liveDay = mergeLive(previous, onto: built)
-        } else {
-            liveDay = built
-        }
+        liveDay = makeLiveDay()
         usingSample = false
         day = liveDay
         loadState = .ready
         schedulePersist()
-    }
-
-    private func mergeLive(_ previous: WalkDay, onto built: WalkDay) -> WalkDay {
-        guard Calendar.current.isDate(previous.date, inSameDayAs: built.date) else {
-            return built
-        }
-        let points = built.points.count >= previous.points.count ? built.points : previous.points
-        let todayPoints = points.filter { Calendar.current.isDate($0.date, inSameDayAs: built.date) }
-        let cap = max(0, Date().timeIntervalSince(Calendar.current.startOfDay(for: built.date)))
-        return WalkDay(
-            date: built.date,
-            points: todayPoints.isEmpty ? built.points : todayPoints,
-            average: built.average,
-            stats: DayStats(
-                steps: max(previous.stats.steps, built.stats.steps),
-                meters: max(previous.stats.meters, built.stats.meters),
-                activeSeconds: min(max(previous.stats.activeSeconds, built.stats.activeSeconds), cap),
-                flights: max(previous.stats.flights, built.stats.flights),
-                calories: max(previous.stats.calories, built.stats.calories)
-            ),
-            source: .live
-        )
     }
 
     @discardableResult
@@ -198,26 +157,14 @@ final class WalkStore {
         let today = Calendar.current.startOfDay(for: Date())
         guard let snap = WalkCache.loadToday() else { return false }
         guard Calendar.current.isDate(snap.dayStart, inSameDayAs: today) else { return false }
+        // Live totals used to include every phone on the iCloud Health account.
+        // Leave that cache unread so this phone shows only its own pedometer.
+        guard snap.usingSample else { return false }
         usingSample = snap.usingSample
         liveTotals = snap.totals.map(clampedToToday)
         healthTimeline = snap.timeline
             .filter { Calendar.current.isDate($0.date, inSameDayAs: today) }
             .map { ($0.date, $0.steps) }
-        var fixes = snap.fixes.map(\.clLocation).filter { $0.timestamp >= today }
-        if fixes.isEmpty {
-            fixes = snap.day.points
-                .filter { Calendar.current.isDate($0.date, inSameDayAs: today) }
-                .map {
-                    CLLocation(
-                        coordinate: $0.coordinate,
-                        altitude: 0,
-                        horizontalAccuracy: 10,
-                        verticalAccuracy: -1,
-                        timestamp: $0.date
-                    )
-                }
-        }
-        location.restore(fixes)
         if snap.usingSample || !Calendar.current.isDate(snap.day.date, inSameDayAs: today) {
             liveDay = nil
             day = snap.usingSample ? snap.day : nil
@@ -235,7 +182,6 @@ final class WalkStore {
             healthTimeline = []
             liveDay = nil
             day = nil
-            location.keepOnly(from: today)
             return false
         }
         if day != nil {
@@ -243,17 +189,6 @@ final class WalkStore {
             return true
         }
         return false
-    }
-
-    private func mergedTotals(_ current: LiveTotals?, _ incoming: LiveTotals) -> LiveTotals {
-        let incoming = clampedToToday(incoming)
-        guard let current else { return incoming }
-        return LiveTotals(
-            steps: max(current.steps, incoming.steps),
-            meters: max(current.meters, incoming.meters),
-            floors: max(current.floors, incoming.floors),
-            activeSeconds: max(current.activeSeconds, incoming.activeSeconds)
-        )
     }
 
     private func clampedToToday(_ totals: LiveTotals) -> LiveTotals {
@@ -277,7 +212,50 @@ final class WalkStore {
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
             persistNow()
+            reloadWidget()
         }
+    }
+
+    private func reloadWidget(force: Bool = false) {
+        let now = Date()
+        if !force, now.timeIntervalSince(lastWidgetReload) < 60 { return }
+        publishWidgetSnapshot()
+        lastWidgetReload = now
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// The widgets read Health on their own, which lags the pedometer count on screen.
+    /// Hand them the number the app is actually showing.
+    private func publishWidgetSnapshot() {
+        guard let day, !usingSample, Calendar.current.isDateInToday(day.date) else { return }
+        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suite) else { return }
+        let start = Calendar.current.startOfDay(for: day.date)
+        let steps = day.stats.steps
+        var offsets = day.points.map { $0.date.timeIntervalSince(start) }
+        var series = day.points.map(\.cumulativeSteps)
+        if series.last != steps {
+            offsets.append(Date().timeIntervalSince(start))
+            series.append(steps)
+        }
+        let snapshot = WidgetSnapshot(
+            dayStart: start,
+            steps: steps,
+            offsets: offsets,
+            stepsSeries: series
+        )
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: WidgetSnapshot.key)
+        if !weeklyAverage.isEmpty {
+            let average = WidgetAveragePayload(
+                dayStart: start,
+                offsets: weeklyAverage.map { $0.date.timeIntervalSince(start) },
+                steps: weeklyAverage.map(\.steps)
+            )
+            if let averageData = try? JSONEncoder().encode(average) {
+                defaults.set(averageData, forKey: WidgetSnapshot.averageKey)
+            }
+        }
+        defaults.synchronize()
     }
 
     private func persistNow() {
@@ -297,9 +275,7 @@ final class WalkStore {
             timeline: healthTimeline
                 .filter { Calendar.current.isDate($0.date, inSameDayAs: start) }
                 .map { StepBucket(date: $0.date, steps: $0.steps) },
-            fixes: location.locations
-                .filter { Calendar.current.isDate($0.timestamp, inSameDayAs: start) }
-                .map(PersistedFix.init(location:))
+            fixes: []
         )
         WalkCache.save(snapshot)
         if task != .invalid {
@@ -309,10 +285,9 @@ final class WalkStore {
 
     private func makeLiveDay() -> WalkDay? {
         let start = Calendar.current.startOfDay(for: Date())
-        let gps = location.locations.filter { $0.timestamp >= start }
         let totals = liveTotals.map(clampedToToday)
         let timeline = healthTimeline.filter { $0.date >= start }
-        let points = buildLivePoints(start: start, gps: gps, totals: totals, timeline: timeline)
+        let points = buildLivePoints(start: start, totals: totals, timeline: timeline)
         let stats: DayStats
         if let totals {
             stats = DayStats(
@@ -336,7 +311,7 @@ final class WalkStore {
             return WalkDay(
                 date: start,
                 points: [],
-                average: SampleWalkFactory.averageCurve(for: Date()),
+                average: weeklyAverage,
                 stats: DayStats(steps: 0, meters: 0, activeSeconds: 0, flights: 0, calories: 0),
                 source: .live
             )
@@ -345,7 +320,7 @@ final class WalkStore {
         return WalkDay(
             date: start,
             points: points,
-            average: SampleWalkFactory.averageCurve(for: Date()),
+            average: weeklyAverage,
             stats: stats,
             source: .live
         )
@@ -358,67 +333,77 @@ final class WalkStore {
     }
 
     private func buildLivePoints(
-        start _: Date,
-        gps: [CLLocation],
+        start: Date,
         totals: LiveTotals?,
         timeline: [(date: Date, steps: Double)]
     ) -> [TrackPoint] {
-        if !gps.isEmpty {
-            var points: [TrackPoint] = []
-            var meters = 0.0
-            var last = gps[0]
-            let totalDistance = zip(gps, gps.dropFirst()).reduce(0.0) { $0 + $1.1.distance(from: $1.0) }
-            let totalSteps = totals?.steps ?? Int(totalDistance / 0.712)
-
-            for (index, location) in gps.enumerated() {
-                if index > 0 {
-                    meters += location.distance(from: last)
-                }
-                let progress = totalDistance > 0 ? meters / totalDistance : 0
-                let moving = index == 0 || location.distance(from: last) > 4
-                points.append(
-                    TrackPoint(
-                        id: index,
-                        date: location.timestamp,
-                        latitude: location.coordinate.latitude,
-                        longitude: location.coordinate.longitude,
-                        cumulativeSteps: Int(Double(totalSteps) * progress),
-                        cumulativeMeters: meters,
-                        isMoving: moving
-                    )
-                )
-                last = location
-            }
-            if let totals, let lastPoint = points.last, lastPoint.cumulativeSteps != totals.steps {
-                points[points.count - 1] = TrackPoint(
-                    id: lastPoint.id,
-                    date: lastPoint.date,
-                    latitude: lastPoint.latitude,
-                    longitude: lastPoint.longitude,
+        var points: [TrackPoint] = []
+        if timeline.isEmpty {
+            guard let totals, totals.steps > 0 else { return [] }
+            points = [
+                TrackPoint(
+                    id: 0,
+                    date: start,
+                    latitude: 0,
+                    longitude: 0,
+                    cumulativeSteps: 0,
+                    cumulativeMeters: 0,
+                    isMoving: false
+                ),
+                TrackPoint(
+                    id: 1,
+                    date: Date(),
+                    latitude: 0,
+                    longitude: 0,
                     cumulativeSteps: totals.steps,
-                    cumulativeMeters: max(lastPoint.cumulativeMeters, totals.meters),
-                    isMoving: lastPoint.isMoving
+                    cumulativeMeters: totals.meters,
+                    isMoving: true
                 )
-            }
+            ]
             return points
         }
 
-        guard !timeline.isEmpty else { return [] }
         var cumulative = 0.0
-        var points: [TrackPoint] = []
-        let fallback = gps.last?.coordinate ?? CLLocationCoordinate2D(latitude: 37.76052, longitude: -122.42698)
         for (index, sample) in timeline.enumerated() {
             cumulative += sample.steps
             points.append(
                 TrackPoint(
                     id: index,
                     date: sample.date,
-                    latitude: fallback.latitude,
-                    longitude: fallback.longitude,
+                    latitude: 0,
+                    longitude: 0,
                     cumulativeSteps: Int(cumulative.rounded()),
                     cumulativeMeters: cumulative * 0.712,
                     isMoving: sample.steps > 8
                 )
+            )
+        }
+
+        guard let totals, let lastPoint = points.last, lastPoint.cumulativeSteps < totals.steps else {
+            return points
+        }
+        let meters = max(lastPoint.cumulativeMeters, totals.meters)
+        if Date().timeIntervalSince(lastPoint.date) > 60 {
+            points.append(
+                TrackPoint(
+                    id: points.count,
+                    date: Date(),
+                    latitude: 0,
+                    longitude: 0,
+                    cumulativeSteps: totals.steps,
+                    cumulativeMeters: meters,
+                    isMoving: true
+                )
+            )
+        } else {
+            points[points.count - 1] = TrackPoint(
+                id: lastPoint.id,
+                date: lastPoint.date,
+                latitude: 0,
+                longitude: 0,
+                cumulativeSteps: totals.steps,
+                cumulativeMeters: meters,
+                isMoving: lastPoint.isMoving
             )
         }
         return points
@@ -430,7 +415,7 @@ final class WalkStore {
             guard let self else { return }
             self.rollToTodayIfNeeded()
             guard Calendar.current.isDateInToday(Date()) else { return }
-            self.liveTotals = self.mergedTotals(self.liveTotals, totals)
+            self.liveTotals = totals
             self.rebuildLiveDay()
         }
     }
@@ -438,25 +423,19 @@ final class WalkStore {
     private func refreshTodayFromSensors(showLoadingIfEmpty: Bool) async {
         rollToTodayIfNeeded()
         let start = Calendar.current.startOfDay(for: Date())
+        loadCachedWeeklyAverage(start)
 
         if PedometerService.isAvailable {
             if let fresh = await pedometer.query(from: start, to: Date()) {
-                liveTotals = mergedTotals(liveTotals, fresh)
+                liveTotals = fresh
             }
-        }
-
-        if !usingSample {
-            applyLiveDay()
-        }
-        flushToDisk()
-
-        _ = await health.requestReadAccess()
-        if let healthTotals = await health.totals(from: start, to: Date()) {
-            liveTotals = mergedTotals(liveTotals, healthTotals)
-        }
-        let freshTimeline = await health.stepTimeline(from: start, to: Date())
-        if !freshTimeline.isEmpty {
-            healthTimeline = freshTimeline.filter { $0.date >= start }
+            if !usingSample {
+                applyLiveDay()
+            }
+            let buckets = await pedometer.stepBuckets(from: start, to: Date())
+            if !buckets.isEmpty {
+                healthTimeline = buckets
+            }
         }
         if !usingSample {
             applyLiveDay()
@@ -464,6 +443,33 @@ final class WalkStore {
             loadState = .empty
         }
         flushToDisk()
+        reloadWidget(force: true)
+        scheduleWeeklyAverage(for: start)
+    }
+
+    private func loadCachedWeeklyAverage(_ start: Date) {
+        guard weeklyAverageDay != start else { return }
+        guard let cached = WeeklyAverageCache.load(for: start) else { return }
+        weeklyAverage = cached
+        weeklyAverageDay = start
+    }
+
+    private func scheduleWeeklyAverage(for start: Date) {
+        guard weeklyAverageDay != start else { return }
+        guard weeklyTask == nil else { return }
+        weeklyTask = Task { [weak self] in
+            let curve = await PedometerService.weeklyAverageCurve(before: start)
+            guard let self else { return }
+            self.weeklyTask = nil
+            guard Calendar.current.isDate(start, inSameDayAs: Date()) else { return }
+            self.weeklyAverage = curve
+            self.weeklyAverageDay = start
+            WeeklyAverageCache.save(dayStart: start, samples: curve)
+            if !self.usingSample {
+                self.applyLiveDay()
+            }
+            self.reloadWidget(force: true)
+        }
     }
 
     private func listenForDayChanges() {
@@ -503,5 +509,53 @@ final class WalkStore {
             await refreshTodayFromSensors(showLoadingIfEmpty: false)
             scheduleMidnightRollover()
         }
+    }
+}
+
+struct WidgetSnapshot: Codable {
+    static let suite = "group.com.bryandebourbon.steps"
+    static let key = "steps.widget.published"
+    static let averageKey = "steps.widget.average"
+
+    var dayStart: Date
+    var steps: Int
+    var offsets: [TimeInterval]
+    var stepsSeries: [Int]
+}
+
+private struct WidgetAveragePayload: Codable {
+    var dayStart: Date
+    var offsets: [TimeInterval]
+    var steps: [Int]
+}
+
+private enum WeeklyAverageCache {
+    private struct Stored: Codable {
+        var dayStart: Date
+        var offsets: [TimeInterval]
+        var steps: [Int]
+    }
+
+    private static let key = "steps.weeklyAverage"
+
+    static func load(for dayStart: Date) -> [AverageSample]? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let stored = try? JSONDecoder().decode(Stored.self, from: data),
+              Calendar.current.isDate(stored.dayStart, inSameDayAs: dayStart),
+              stored.offsets.count == stored.steps.count,
+              stored.steps.contains(where: { $0 > 0 }) else { return nil }
+        return zip(stored.offsets, stored.steps).enumerated().map { index, pair in
+            AverageSample(id: index, date: dayStart.addingTimeInterval(pair.0), steps: pair.1)
+        }
+    }
+
+    static func save(dayStart: Date, samples: [AverageSample]) {
+        let stored = Stored(
+            dayStart: dayStart,
+            offsets: samples.map { $0.date.timeIntervalSince(dayStart) },
+            steps: samples.map(\.steps)
+        )
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
 }

@@ -6,8 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A1B2C3D4E5F60718293A4B0A /* StepsWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B01 /* StepsWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A1B2C3D4E5F60718293A4B08 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1A2B3C4D5E6F708192A0B0C0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3D4E5F60718293A4B07;
+			remoteInfo = StepsWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1B2C3D4E5F60718293A4B0B /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B2C3D4E5F60718293A4B0A /* StepsWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		1A2B3C4D5E6F708192A0B0C2 /* Steps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Steps.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F60718293A4B01 /* StepsWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StepsWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -17,6 +46,14 @@
 				Info.plist,
 			);
 			target = 1A2B3C4D5E6F708192A0B0C1 /* Steps */;
+		};
+		A1B2C3D4E5F60718293A4B03 /* Exceptions for "StepsWidget" folder in "StepsWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				StepsWidget.entitlements,
+			);
+			target = A1B2C3D4E5F60718293A4B07 /* StepsWidget */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -29,10 +66,25 @@
 			path = Steps;
 			sourceTree = "<group>";
 		};
+		A1B2C3D4E5F60718293A4B02 /* StepsWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1B2C3D4E5F60718293A4B03 /* Exceptions for "StepsWidget" folder in "StepsWidget" target */,
+			);
+			path = StepsWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		1A2B3C4D5E6F708192A0B0C6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F60718293A4B04 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +98,7 @@
 			isa = PBXGroup;
 			children = (
 				1A2B3C4D5E6F708192A0B0C3 /* Steps */,
+				A1B2C3D4E5F60718293A4B02 /* StepsWidget */,
 				1A2B3C4D5E6F708192A0B0C5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +107,7 @@
 			isa = PBXGroup;
 			children = (
 				1A2B3C4D5E6F708192A0B0C2 /* Steps.app */,
+				A1B2C3D4E5F60718293A4B01 /* StepsWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -68,10 +122,12 @@
 				1A2B3C4D5E6F708192A0B0C7 /* Sources */,
 				1A2B3C4D5E6F708192A0B0C6 /* Frameworks */,
 				1A2B3C4D5E6F708192A0B0C8 /* Resources */,
+				A1B2C3D4E5F60718293A4B0B /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1B2C3D4E5F60718293A4B09 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				1A2B3C4D5E6F708192A0B0C3 /* Steps */,
@@ -81,7 +137,35 @@
 			productReference = 1A2B3C4D5E6F708192A0B0C2 /* Steps.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1B2C3D4E5F60718293A4B07 /* StepsWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D4E5F60718293A4B0E /* Build configuration list for PBXNativeTarget "StepsWidget" */;
+			buildPhases = (
+				A1B2C3D4E5F60718293A4B05 /* Sources */,
+				A1B2C3D4E5F60718293A4B04 /* Frameworks */,
+				A1B2C3D4E5F60718293A4B06 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3D4E5F60718293A4B02 /* StepsWidget */,
+			);
+			name = StepsWidget;
+			productName = StepsWidget;
+			productReference = A1B2C3D4E5F60718293A4B01 /* StepsWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXTargetDependency section */
+		A1B2C3D4E5F60718293A4B09 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B2C3D4E5F60718293A4B07 /* StepsWidget */;
+			targetProxy = A1B2C3D4E5F60718293A4B08 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		1A2B3C4D5E6F708192A0B0C0 /* Project object */ = {
@@ -92,6 +176,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					1A2B3C4D5E6F708192A0B0C1 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					A1B2C3D4E5F60718293A4B07 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
@@ -111,6 +198,7 @@
 			projectRoot = "";
 			targets = (
 				1A2B3C4D5E6F708192A0B0C1 /* Steps */,
+				A1B2C3D4E5F60718293A4B07 /* StepsWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -123,10 +211,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D4E5F60718293A4B06 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		1A2B3C4D5E6F708192A0B0C7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F60718293A4B05 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -275,13 +377,10 @@
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Steps reads step count, walking distance, flights, and active energy from Health so today’s totals stay accurate.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Steps does not write to Health; this description is required for HealthKit access.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.";
-				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Steps uses your GPS while you walk to draw today’s path on the map.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Steps uses the camera to scan a friend’s code.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Steps uses the motion coprocessor to count steps, distance, and active time while you walk.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIBackgroundModes = location;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -316,13 +415,10 @@
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Steps reads step count, walking distance, flights, and active energy from Health so today’s totals stay accurate.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Steps does not write to Health; this description is required for HealthKit access.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.";
-				INFOPLIST_KEY_NSLocationAlwaysUsageDescription = "Steps records GPS in the background so today’s walking path keeps updating when you switch apps or lock the phone. If the app is closed, iOS may still wake it for significant location changes and place visits. Steps does not read Apple’s Location History or Significant Locations.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Steps uses your GPS while you walk to draw today’s path on the map.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Steps uses the camera to scan a friend’s code.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Steps uses the motion coprocessor to count steps, distance, and active time while you walk.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIBackgroundModes = location;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -335,6 +431,64 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A1B2C3D4E5F60718293A4B0C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = StepsWidget/StepsWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VZPMV36P9L;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StepsWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Steps;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Steps reads today’s step count so the home screen graph stays up to date.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Steps does not write to Health; this description is required for HealthKit access.";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryandebourbon.steps.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1B2C3D4E5F60718293A4B0D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = StepsWidget/StepsWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VZPMV36P9L;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StepsWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Steps;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Steps reads today’s step count so the home screen graph stays up to date.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Steps does not write to Health; this description is required for HealthKit access.";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryandebourbon.steps.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -358,6 +512,15 @@
 			buildConfigurations = (
 				1A2B3C4D5E6F708192A0B0CD /* Debug */,
 				1A2B3C4D5E6F708192A0B0CE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F60718293A4B0E /* Build configuration list for PBXNativeTarget "StepsWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F60718293A4B0C /* Debug */,
+				A1B2C3D4E5F60718293A4B0D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

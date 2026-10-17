@@ -85,6 +85,19 @@ struct WalkDay: Equatable, Codable {
         return dl <= dr ? left : right
     }
 
+    /// Time and step count where the line first reaches `threshold`.
+    func crossing(of threshold: Int) -> (date: Date, steps: Int)? {
+        guard let index = points.firstIndex(where: { $0.cumulativeSteps >= threshold }) else { return nil }
+        let hit = points[index]
+        guard index > 0 else { return (hit.date, threshold) }
+        let before = points[index - 1]
+        let span = hit.cumulativeSteps - before.cumulativeSteps
+        guard span > 0 else { return (hit.date, threshold) }
+        let fraction = Double(threshold - before.cumulativeSteps) / Double(span)
+        let date = before.date.addingTimeInterval(hit.date.timeIntervalSince(before.date) * fraction)
+        return (date, threshold)
+    }
+
     func averageSteps(at target: Date) -> Int {
         guard !average.isEmpty else { return 0 }
         var closest = average[0]

@@ -1,18 +1,22 @@
 import SwiftUI
 
 enum Palette {
-    static let skyTop = Color(red: 0.55, green: 0.64, blue: 0.84)
-    static let skyBottom = Color(red: 0.33, green: 0.41, blue: 0.66)
     static let ink = Color.white
-    static let inkMuted = Color.white.opacity(0.62)
-    static let card = Color(red: 0.09, green: 0.09, blue: 0.10)
-    static let actual = Color(red: 0.55, green: 0.68, blue: 0.98)
-    static let average = Color.white.opacity(0.48)
-    static let behind = Color(red: 1.0, green: 0.36, blue: 0.36)
-    static let ahead = Color(red: 0.22, green: 0.84, blue: 0.45)
-    static let path = Color(red: 0.45, green: 0.62, blue: 1.0)
-    static let pathRest = Color(red: 0.45, green: 0.62, blue: 1.0).opacity(0.28)
-    static let marker = Color(red: 0.38, green: 0.56, blue: 1.0)
+    static let inkMuted = Color.white.opacity(0.55)
+    static let card = Color.black
+    static let actual = Color.white
+    static let average = Color.white.opacity(0.32)
+    static let behind = Color.white.opacity(0.72)
+    static let ahead = Color.white
+
+    static func friendColor(_ index: Int) -> Color {
+        let colors = [
+            Color(red: 0.35, green: 0.78, blue: 1),
+            Color(red: 1, green: 0.62, blue: 0.28),
+            Color(red: 0.78, green: 0.56, blue: 1)
+        ]
+        return colors[index % colors.count].opacity(0.62)
+    }
 }
 
 enum Formatters {

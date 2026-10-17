@@ -1,16 +1,24 @@
 import SwiftUI
 import Charts
 import UIKit
+import CoreHaptics
 
 struct ProgressChartView: View {
     let day: WalkDay
     let scrubDate: Date?
+    var celebrating: Bool = false
+    var showCongratulations: Bool = false
+    var burstID: Int = 0
+    var friends: [FriendCurve] = []
+    var goal: Int = 20_000
+    var userName: String = ""
     var onBegin: (Date) -> Void
     var onChange: (Date) -> Void
     var onEnd: () -> Void
 
     @State private var lastTickIndex: Int?
-    @State private var haptics = ChartHapticEngine()
+    @State private var haptics = ChartHapticPlayer()
+    @State private var banner: TenKBannerPlacement?
 
     private var focus: TrackPoint? {
         if let scrubDate {
@@ -40,34 +48,64 @@ struct ProgressChartView: View {
             }
             .foregroundStyle(comparison.isBehind ? Palette.behind : Palette.ahead)
 
+            if !friends.isEmpty {
+                HStack(spacing: 12) {
+                    ForEach(friends) { friend in
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(Palette.friendColor(friend.colorIndex))
+                                .frame(width: 7, height: 7)
+                            Text("\(friend.name) \(friend.steps.formatted())")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Palette.friendColor(friend.colorIndex))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+
             chart
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityLabel("Steps over time compared with your average day")
 
-            if let focus {
-                Text("By \(Formatters.time.string(from: focus.date)), you’ve usually walked about \(Formatters.steps(averageAtFocus)) steps.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.white.opacity(0.72))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
+        .padding(.top, 8)
+        .coordinateSpace(name: "progressChart")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Palette.card)
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 22,
-                bottomTrailingRadius: 22,
-                topTrailingRadius: 0,
-                style: .continuous
-            )
-        )
+        .background(Color.black)
+        .onPreferenceChange(TenKBannerKey.self) { banner = $0 }
+        .overlay {
+            GeometryReader { geo in
+                if showCongratulations, let banner {
+                    CongratulationsBanner(
+                        source: CGPoint(x: banner.sourceX, y: banner.sourceY),
+                        restY: banner.restY,
+                        width: geo.size.width
+                    )
+                    .id(burstID)
+                    .allowsHitTesting(false)
+                }
+            }
+            .allowsHitTesting(false)
+        }
     }
 
     private var chart: some View {
         Chart {
+            ForEach(friends) { friend in
+                ForEach(friend.samples) { sample in
+                    LineMark(
+                        x: .value("Time", sample.date),
+                        y: .value("Steps", sample.steps),
+                        series: .value("Series", "Friend-\(friend.id)")
+                    )
+                    .foregroundStyle(Palette.friendColor(friend.colorIndex))
+                    .interpolationMethod(.stepEnd)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                }
+            }
+
             ForEach(day.average) { sample in
                 LineMark(
                     x: .value("Time", sample.date),
@@ -111,7 +149,7 @@ struct ProgressChartView: View {
             }
         }
         .chartXScale(domain: day.startOfDay...day.endOfDay)
-        .chartYScale(domain: 0...20_000)
+        .chartYScale(domain: 0...goalCeiling)
         .chartXAxis {
             AxisMarks(values: axisTimes) { value in
                 AxisValueLabel {
@@ -124,13 +162,17 @@ struct ProgressChartView: View {
             }
         }
         .chartYAxis {
-            AxisMarks(position: .trailing, values: [20_000]) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6, dash: [4, 4]))
-                    .foregroundStyle(Color.white.opacity(0.2))
+            AxisMarks(position: .trailing, values: goalMarks) { value in
+                if value.as(Int.self) == goal {
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.6, dash: [4, 4]))
+                        .foregroundStyle(Color.white.opacity(0.2))
+                }
                 AxisValueLabel {
-                    Text("20K")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.45))
+                    if let mark = value.as(Int.self) {
+                        Text(StepGoal.axisMark(mark))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.white.opacity(0.45))
+                    }
                 }
             }
         }
@@ -147,21 +189,123 @@ struct ProgressChartView: View {
             }
         }
         .chartOverlay { proxy in
-            GeometryReader { _ in
-                Rectangle()
-                    .fill(Color.clear)
-                    .contentShape(Rectangle())
-                    .highPriorityGesture(scrubGesture(proxy: proxy))
-                    .background(
-                        HapticHost(engine: haptics)
-                            .frame(width: 1, height: 1)
+            GeometryReader { geo in
+                ZStack {
+                    if celebrating, let point = tenKPlotPoint(proxy: proxy, geo: geo) {
+                        TenKMarker()
+                            .position(point)
                             .allowsHitTesting(false)
+                    }
+                    if let plotAnchor = proxy.plotFrame {
+                        let plot = geo[plotAnchor]
+                        if !userName.isEmpty, let point = day.points.last,
+                           let plotPoint = proxy.position(for: (x: point.date, y: point.cumulativeSteps)) {
+                            let x = plot.minX + plotPoint.x
+                            let y = plot.minY + plotPoint.y
+                            let placed = FriendPlotLabel.placement(name: userName, fontSize: 12, x: x, plot: plot)
+                            FriendPlotLabel(
+                                name: userName,
+                                color: .white,
+                                onRight: placed.onRight,
+                                width: placed.width
+                            )
+                            .position(
+                                x: placed.onRight ? x + placed.width / 2 : x - placed.width / 2,
+                                y: y
+                            )
+                            .allowsHitTesting(false)
+                        }
+                        ForEach(friends) { friend in
+                            if let sample = friend.samples.last, !friend.name.isEmpty,
+                               let plotPoint = proxy.position(for: (x: sample.date, y: sample.steps)) {
+                                let x = plot.minX + plotPoint.x
+                                let y = plot.minY + plotPoint.y
+                                let placed = FriendPlotLabel.placement(name: friend.name, fontSize: 12, x: x, plot: plot)
+                                FriendPlotLabel(
+                                    name: friend.name,
+                                    color: Palette.friendColor(friend.colorIndex),
+                                    onRight: placed.onRight,
+                                    width: placed.width
+                                )
+                                .position(
+                                    x: placed.onRight ? x + placed.width / 2 : x - placed.width / 2,
+                                    y: y
+                                )
+                                .allowsHitTesting(false)
+                            }
+                        }
+                    }
+                    ScrubSurface(
+                haptics: haptics,
+                onPress: { x in
+                    guard !day.points.isEmpty, let date = proxy.value(atX: x, as: Date.self) else { return }
+                    lastTickIndex = day.point(nearestTo: date)?.id
+                    onBegin(date)
+                },
+                onMove: { x in
+                    guard !day.points.isEmpty, let date = proxy.value(atX: x, as: Date.self) else { return false }
+                    onChange(date)
+                    guard let point = day.point(nearestTo: date) else { return false }
+                    if lastTickIndex != point.id {
+                        lastTickIndex = point.id
+                        return true
+                    }
+                    return false
+                },
+                onEnd: {
+                    lastTickIndex = nil
+                    onEnd()
+                }
                     )
+                }
+                .preference(key: TenKOriginKey.self, value: tenKOrigin(proxy: proxy, geo: geo))
+                .preference(key: TenKBannerKey.self, value: bannerCenter(proxy: proxy, geo: geo))
             }
         }
         .onAppear {
-            haptics.prepare()
+            haptics.start()
         }
+    }
+
+    private func tenKPlotPoint(proxy: ChartProxy, geo: GeometryProxy) -> CGPoint? {
+        guard let crossing = day.crossing(of: TenKCelebration.threshold),
+              let plotAnchor = proxy.plotFrame,
+              let plotPoint = proxy.position(for: (x: crossing.date, y: crossing.steps))
+        else { return nil }
+        let plot = geo[plotAnchor]
+        return CGPoint(x: plot.minX + plotPoint.x, y: plot.minY + plotPoint.y)
+    }
+
+    private func tenKOrigin(proxy: ChartProxy, geo: GeometryProxy) -> CGPoint? {
+        guard let local = tenKPlotPoint(proxy: proxy, geo: geo) else { return nil }
+        let chart = geo.frame(in: .named("stepsScreen"))
+        return CGPoint(x: chart.minX + local.x, y: chart.minY + local.y)
+    }
+
+    /// The 10k mark, and the resting spot halfway up to the vs-average line.
+    private func bannerCenter(proxy: ChartProxy, geo: GeometryProxy) -> TenKBannerPlacement? {
+        guard let local = tenKPlotPoint(proxy: proxy, geo: geo) else { return nil }
+        let chart = geo.frame(in: .named("progressChart"))
+        return TenKBannerPlacement(
+            sourceX: chart.minX + local.x,
+            sourceY: chart.minY + local.y,
+            restY: chart.minY + local.y / 2
+        )
+    }
+
+    private var goalMarks: [Int] {
+        let quarter = max(goal / 4, 1)
+        return [0, quarter, quarter * 2, quarter * 3, goal]
+    }
+
+    /// The top of the chart is the goal, unless someone has already walked past it.
+    private var goalCeiling: Double {
+        let mine = day.points.map(\.cumulativeSteps).max() ?? day.stats.steps
+        let theirs = friends.flatMap(\.samples).map(\.steps).max() ?? 0
+        let typical = day.average.map(\.steps).max() ?? 0
+        let peak = max(goal, mine, theirs, typical)
+        if peak <= goal { return Double(goal) }
+        return Double(peak) * 1.08
     }
 
     private var axisTimes: [Date] {
@@ -198,88 +342,311 @@ struct ProgressChartView: View {
         .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private func scrubGesture(proxy: ChartProxy) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                guard !day.points.isEmpty else { return }
-                guard let date = proxy.value(atX: value.location.x, as: Date.self) else { return }
-                if scrubDate == nil {
-                    haptics.prepare()
-                    haptics.start()
-                    lastTickIndex = nil
-                    onBegin(date)
-                    tickIfNeeded(for: date)
-                } else {
-                    onChange(date)
-                    tickIfNeeded(for: date)
+}
+
+private struct TenKBannerPlacement: Equatable {
+    var sourceX: CGFloat
+    var sourceY: CGFloat
+    var restY: CGFloat
+}
+
+private struct TenKBannerKey: PreferenceKey {
+    static var defaultValue: TenKBannerPlacement? = nil
+    static func reduce(value: inout TenKBannerPlacement?, nextValue: () -> TenKBannerPlacement?) {
+        value = nextValue() ?? value
+    }
+}
+
+private struct CongratulationsBanner: View {
+    var source: CGPoint
+    var restY: CGFloat
+    var width: CGFloat
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var arrived = false
+
+    var body: some View {
+        CongratulationsShimmer()
+            .frame(width: width)
+            .scaleEffect(arrived || reduceMotion ? 1 : 0.04, anchor: .center)
+            .position(
+                x: arrived || reduceMotion ? width / 2 : source.x,
+                y: arrived || reduceMotion ? restY : source.y
+            )
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.spring(response: 0.48, dampingFraction: 0.78)) {
+                    arrived = true
                 }
             }
-            .onEnded { _ in
-                lastTickIndex = nil
-                haptics.prepare()
-                onEnd()
+    }
+}
+
+private struct CongratulationsShimmer: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let font = Font.system(size: 80, weight: .bold, design: .rounded)
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 120.0, paused: reduceMotion)) { timeline in
+            let band = shimmerBand(at: timeline.date)
+            Text("Congratulations")
+                .font(font)
+                .minimumScaleFactor(0.15)
+                .lineLimit(1)
+                .foregroundStyle(
+                    LinearGradient(
+                        stops: shimmerStops(band: band),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func shimmerBand(at date: Date) -> CGFloat {
+        guard !reduceMotion else { return 0.5 }
+        let oneWay = 0.85
+        let elapsed = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: oneWay * 2) / oneWay
+        let progress = elapsed <= 1 ? elapsed : 2 - elapsed
+        return 0.08 + 0.84 * progress
+    }
+
+    private func shimmerStops(band: CGFloat) -> [Gradient.Stop] {
+        let center = min(max(band, 0.04), 0.96)
+        let start = max(0.02, center - 0.1)
+        let end = min(0.98, center + 0.1)
+        return [
+            .init(color: Color.white.opacity(0.5), location: 0),
+            .init(color: Color.white.opacity(0.5), location: start),
+            .init(color: .white, location: center),
+            .init(color: Color.white.opacity(0.5), location: end),
+            .init(color: Color.white.opacity(0.5), location: 1)
+        ]
+    }
+}
+
+private struct TenKMarker: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.9), lineWidth: 1.5)
+                .frame(width: 18, height: 18)
+                .scaleEffect(pulse ? 2.1 : 0.55)
+                .opacity(pulse ? 0 : 0.95)
+            Circle()
+                .fill(Color.white)
+                .frame(width: 7, height: 7)
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) {
+                pulse = true
             }
-    }
-
-    private func tickIfNeeded(for date: Date) {
-        guard let point = day.point(nearestTo: date) else { return }
-        if lastTickIndex != point.id {
-            lastTickIndex = point.id
-            haptics.tick()
         }
     }
 }
 
-@MainActor
-final class ChartHapticEngine {
-    private var selection = UISelectionFeedbackGenerator()
-    private var impact = UIImpactFeedbackGenerator(style: .medium)
-    private weak var view: UIView?
+private struct FriendPlotLabel: View {
+    var name: String
+    var color: Color
+    var onRight: Bool
+    var width: CGFloat
+    var fontSize: CGFloat = 12
 
-    func attach(to view: UIView) {
-        if self.view === view { return }
-        self.view = view
-        if #available(iOS 17.5, *) {
-            selection = UISelectionFeedbackGenerator(view: view)
-            impact = UIImpactFeedbackGenerator(style: .medium, view: view)
-        } else {
-            selection = UISelectionFeedbackGenerator()
-            impact = UIImpactFeedbackGenerator(style: .medium)
+    var body: some View {
+        HStack(spacing: 4) {
+            if onRight {
+                dash
+                nameText
+            } else {
+                nameText
+                dash
+            }
         }
-        prepare()
+        .frame(width: width, alignment: onRight ? .leading : .trailing)
     }
 
-    func prepare() {
-        selection.prepare()
-        impact.prepare()
+    private var dash: some View {
+        Capsule()
+            .fill(color)
+            .frame(width: 12, height: 2)
     }
 
-    func start() {
-        prepare()
-        impact.impactOccurred(intensity: 0.9)
-        selection.prepare()
+    private var nameText: some View {
+        Text(name)
+            .font(.system(size: fontSize, weight: .semibold))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
 
-    func tick() {
-        selection.selectionChanged()
-        selection.prepare()
+    static func placement(name: String, fontSize: CGFloat, x: CGFloat, plot: CGRect) -> (onRight: Bool, width: CGFloat) {
+        let natural = naturalWidth(name: name, fontSize: fontSize)
+        let right = plot.maxX - x - 8
+        if natural <= right {
+            return (true, natural)
+        }
+        let left = max(x - plot.minX - 8, 28)
+        return (false, min(natural, left))
+    }
+
+    static func naturalWidth(name: String, fontSize: CGFloat) -> CGFloat {
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let text = ceil((name as NSString).size(withAttributes: [.font: font]).width)
+        return text + 18
+    }
+
+    static func width(name: String, fontSize: CGFloat, room: CGFloat) -> CGFloat {
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let text = ceil((name as NSString).size(withAttributes: [.font: font]).width)
+        return min(text + 18, max(room - 6, 28))
     }
 }
 
-private struct HapticHost: UIViewRepresentable {
-    let engine: ChartHapticEngine
+private struct ScrubSurface: UIViewRepresentable {
+    var haptics: ChartHapticPlayer
+    var onPress: (CGFloat) -> Void
+    var onMove: (CGFloat) -> Bool
+    var onEnd: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(haptics: haptics, onPress: onPress, onMove: onMove, onEnd: onEnd)
+    }
 
     func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
-        view.isUserInteractionEnabled = false
-        view.isAccessibilityElement = false
-        engine.attach(to: view)
-        engine.prepare()
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isMultipleTouchEnabled = false
+        let press = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handle(_:))
+        )
+        press.minimumPressDuration = 0
+        press.allowableMovement = .greatestFiniteMagnitude
+        press.cancelsTouchesInView = false
+        view.addGestureRecognizer(press)
+        context.coordinator.haptics.start()
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        engine.attach(to: uiView)
-        engine.prepare()
+        context.coordinator.haptics = haptics
+        context.coordinator.onPress = onPress
+        context.coordinator.onMove = onMove
+        context.coordinator.onEnd = onEnd
+    }
+
+    final class Coordinator: NSObject {
+        var haptics: ChartHapticPlayer
+        var onPress: (CGFloat) -> Void
+        var onMove: (CGFloat) -> Bool
+        var onEnd: () -> Void
+        private let impact = UIImpactFeedbackGenerator(style: .heavy)
+        private let selection = UISelectionFeedbackGenerator()
+
+        init(
+            haptics: ChartHapticPlayer,
+            onPress: @escaping (CGFloat) -> Void,
+            onMove: @escaping (CGFloat) -> Bool,
+            onEnd: @escaping () -> Void
+        ) {
+            self.haptics = haptics
+            self.onPress = onPress
+            self.onMove = onMove
+            self.onEnd = onEnd
+            super.init()
+            impact.prepare()
+            selection.prepare()
+        }
+
+        @objc func handle(_ gesture: UILongPressGestureRecognizer) {
+            let x = gesture.location(in: gesture.view).x
+            switch gesture.state {
+            case .began:
+                impact.impactOccurred(intensity: 1)
+                impact.prepare()
+                haptics.press()
+                onPress(x)
+            case .changed:
+                if onMove(x) {
+                    selection.selectionChanged()
+                    selection.prepare()
+                    haptics.tick()
+                }
+            case .ended, .cancelled, .failed:
+                onEnd()
+            default:
+                break
+            }
+        }
+    }
+}
+
+final class ChartHapticPlayer {
+    private var engine: CHHapticEngine?
+    private var pressPlayer: CHHapticPatternPlayer?
+    private var tickPlayer: CHHapticPatternPlayer?
+
+    func start() {
+        guard engine == nil else {
+            try? engine?.start()
+            return
+        }
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+        do {
+            let engine = try CHHapticEngine()
+            engine.isAutoShutdownEnabled = false
+            engine.playsHapticsOnly = true
+            engine.resetHandler = { [weak self] in
+                DispatchQueue.main.async { self?.rebuildPlayers() }
+            }
+            engine.stoppedHandler = { [weak self] _ in
+                DispatchQueue.main.async { self?.rebuildPlayers() }
+            }
+            try engine.start()
+            self.engine = engine
+            rebuildPlayers()
+        } catch {
+            engine = nil
+        }
+    }
+
+    func press() {
+        play(pressPlayer)
+    }
+
+    func tick() {
+        play(tickPlayer)
+    }
+
+    private func play(_ player: CHHapticPatternPlayer?) {
+        guard let engine, let player else { return }
+        try? engine.start()
+        try? player.start(atTime: CHHapticTimeImmediate)
+    }
+
+    private func rebuildPlayers() {
+        guard let engine else { return }
+        try? engine.start()
+        pressPlayer = try? engine.makePlayer(with: Self.transient(intensity: 1, sharpness: 0.3))
+        tickPlayer = try? engine.makePlayer(with: Self.transient(intensity: 0.85, sharpness: 1))
+    }
+
+    private static func transient(intensity: Float, sharpness: Float) throws -> CHHapticPattern {
+        let event = CHHapticEvent(
+            eventType: .hapticTransient,
+            parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
+            ],
+            relativeTime: 0
+        )
+        return try CHHapticPattern(events: [event], parameters: [])
     }
 }
